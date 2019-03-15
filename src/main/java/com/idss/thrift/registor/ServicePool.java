@@ -20,32 +20,36 @@ import java.util.Map;
 public class ServicePool {
     private ZkClient zkClient;
     private String serviceName;
-    private Map<String,TProtocol> ip_protocol_map = new HashMap<>();
+    private Map<String, List<TProtocol>> ip_protocol_map = new HashMap<>();
     private List<String> iplist = new ArrayList<>();
-    private Map<TProtocol,Boolean> usedMap = new HashMap<>();
+    private Map<TProtocol, Boolean> usedMap = new HashMap<>();
 
-    public ServicePool(ZkClient zkClient, String serviceName) {
+    public ServicePool(ZkClient zkClient, String serviceName, int ptcCntPerServ) {
         this.zkClient = zkClient;
         this.serviceName = serviceName;
         List<String> childrenPaths = zkClient.getChildren(Constant.DEFAULT_CONFIG_PATH.concat("/").concat(serviceName));
-        init(childrenPaths);
+        init(childrenPaths, ptcCntPerServ);
         zkClient.subscribeChildChanges(Constant.DEFAULT_CONFIG_PATH.concat("/").concat(serviceName), new IZkChildListener() {
             public void handleChildChange(String s, List<String> list) throws Exception {
-                init(childrenPaths);
+                init(list, ptcCntPerServ);
             }
         });
     }
 
-    public TProtocol get(){
+    public TProtocol get() {
         int i = 0;
-        while ( i< 1000){
-            synchronized (this){
-                for (Map.Entry<String, TProtocol> entry : ip_protocol_map.entrySet()) {
-                    TProtocol protocol = entry.getValue();
-                    Boolean used = usedMap.get(protocol);
-                    if(used == null || !used){
-                        usedMap.put(protocol,true);
-                        return protocol;
+        while (i < 1000) {
+            synchronized (this) {
+                for (Map.Entry<String, List<TProtocol>> entry : ip_protocol_map.entrySet()) {
+                    List<TProtocol> protocols = entry.getValue();
+                    if (protocols != null) {
+                        for (TProtocol protocol : protocols) {
+                            Boolean used = usedMap.get(protocol);
+                            if (used == null || !used) {
+                                usedMap.put(protocol, true);
+                                return protocol;
+                            }
+                        }
                     }
                 }
             }
@@ -59,45 +63,54 @@ public class ServicePool {
         return null;
     }
 
-    public void release(TProtocol protocol){
-        if(protocol == null) {
+    public void release(TProtocol protocol) {
+        if (protocol == null) {
             return;
         }
-        synchronized (protocol){
-            if(usedMap.containsKey(protocol)){
-                usedMap.put(protocol,false);
+        synchronized (protocol) {
+            if (usedMap.containsKey(protocol)) {
+                usedMap.put(protocol, false);
             }
         }
     }
 
-    private void init(List<String> childrenPaths){
-        synchronized (this){
+    private void init(List<String> childrenPaths, int ptcCntPerServ) {
+        synchronized (this) {
             iplist = new ArrayList<>();
-            Map<TProtocol,Boolean> oldUsedMap = usedMap;
+            Map<TProtocol, Boolean> oldUsedMap = usedMap;
             usedMap = new HashMap<>();
-            Map<String,TProtocol> oldMap = ip_protocol_map;
+            Map<String, List<TProtocol>> oldMap = ip_protocol_map;
             ip_protocol_map = new HashMap<>();
             childrenPaths.forEach(ip -> {
                 int port = zkClient.readData(Constant.DEFAULT_CONFIG_PATH.concat("/").concat(serviceName).concat("/").concat(ip));
-                TFramedTransport transport = new TFramedTransport(new TSocket(ip, port));
-                TProtocol protocol = new TCompactProtocol(transport);
-                try {
-                    boolean used = false;
-                    TProtocol tProtocol = oldMap.get(ip);
-                    if(tProtocol != null){
-                        protocol = tProtocol;
-                        used = oldUsedMap.get(protocol);
+                List<TProtocol> protocols = new ArrayList<>();
+                List<TProtocol> tProtocols = oldMap.get(ip);
+                if (tProtocols != null) {
+                    protocols = tProtocols;
+                } else {
+                    for(int i = 0; i < ptcCntPerServ; i++){
+                        TFramedTransport transport = new TFramedTransport(new TSocket(ip, port));
+                        TProtocol protocol = new TCompactProtocol(transport);
+                        protocols.add(protocol);
                     }
-                    TTransport tran = protocol.getTransport();
-                    if(!tran.isOpen()){
-                        tran.open();
-                    }
-                    ip_protocol_map.put(ip,protocol);
-                    usedMap.put(protocol,used);
-                    iplist.add(ip);
-                } catch (TTransportException e) {
-                    e.printStackTrace();
                 }
+                protocols.forEach(protocol -> {
+                    TTransport tran = protocol.getTransport();
+                    try {
+                        if (!tran.isOpen()) {
+                            tran.open();
+                        }
+                        Boolean b_used = oldUsedMap.get(protocol);
+                        if(b_used == null) {
+                            b_used = false;
+                        }
+                        usedMap.put(protocol, b_used);
+                    } catch (TTransportException e) {
+                        e.printStackTrace();
+                    }
+                });
+                ip_protocol_map.put(ip, protocols);
+                iplist.add(ip);
             });
         }
     }
