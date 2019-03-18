@@ -24,6 +24,12 @@ public class ServicePool {
     private List<String> iplist = new ArrayList<>();
     private Map<TProtocol, Boolean> usedMap = new HashMap<>();
 
+    /**
+     *
+     * @param zkClient
+     * @param serviceName 服务名称
+     * @param ptcCntPerServ 与每个服务器保持的连接数量
+     */
     public ServicePool(ZkClient zkClient, String serviceName, int ptcCntPerServ) {
         this.zkClient = zkClient;
         this.serviceName = serviceName;
@@ -36,6 +42,10 @@ public class ServicePool {
         });
     }
 
+    /**
+     * 获取一个空闲的连接
+     * @return
+     */
     public TProtocol get() {
         int i = 0;
         while (i < 1000) {
@@ -60,9 +70,13 @@ public class ServicePool {
                 e.printStackTrace();
             }
         }
-        return null;
+        throw new RuntimeException("no useable service");
     }
 
+    /**
+     * 释放连接
+     * @param protocol
+     */
     public void release(TProtocol protocol) {
         if (protocol == null) {
             return;
@@ -74,6 +88,11 @@ public class ServicePool {
         }
     }
 
+    /**
+     * 初始化，将zookeeper注册节点路径下的所有服务，按照参数创建链接
+     * @param childrenPaths 注册节点的所有服务的ip节点信息
+     * @param ptcCntPerServ 每台服务器创建的连接数量
+     */
     private void init(List<String> childrenPaths, int ptcCntPerServ) {
         synchronized (this) {
             iplist = new ArrayList<>();
