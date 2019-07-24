@@ -1,6 +1,5 @@
 package com.idss.thrift.registor;
 
-import org.I0Itec.zkclient.IZkDataListener;
 import org.I0Itec.zkclient.IZkStateListener;
 import org.I0Itec.zkclient.ZkClient;
 import org.apache.thrift.TProcessor;
@@ -16,7 +15,6 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentSkipListSet;
 
 /**
  * 服务注册器
@@ -32,8 +30,7 @@ public class ZookeeperRegistor {
      * @param zkClient zookeeper客户端
      */
     public ZookeeperRegistor(ZkClient zkClient) {
-        this.zkClient = zkClient;
-        createBasePath();
+        this(zkClient, null);
     }
 
     /**
@@ -44,7 +41,9 @@ public class ZookeeperRegistor {
      */
     public ZookeeperRegistor(ZkClient zkClient, String configPath) {
         this.zkClient = zkClient;
-        this.configPath = configPath;
+        if (configPath != null && configPath.trim().length() != 0) {
+            this.configPath = configPath;
+        }
         createBasePath();
     }
 
@@ -60,6 +59,7 @@ public class ZookeeperRegistor {
      * @throws UnknownHostException
      */
     private Set<NodeData> nodeDataSet = ConcurrentHashMap.newKeySet();
+
     public void regist(int port, String serviceName) throws UnknownHostException {
         InetAddress inetAddress = InetAddress.getLocalHost();
         String servicePath = configPath.concat("/").concat(serviceName);
@@ -67,12 +67,13 @@ public class ZookeeperRegistor {
         String path = servicePath.concat("/").concat(inetAddress.getHostAddress());
         zkClient.createEphemeral(path, true);
         zkClient.writeData(path, port);
-        nodeDataSet.add(new NodeData(path,port));
+        nodeDataSet.add(new NodeData(path, port));
     }
 
-    private static class NodeData{
+    private static class NodeData {
         String path;
         int port;
+
         public NodeData(String path, int port) {
             this.path = path;
             this.port = port;

@@ -23,19 +23,26 @@ public class ServicePool {
     private Map<String, List<TProtocol>> ip_protocol_map = new HashMap<>();
     private List<String> iplist = new ArrayList<>();
     private Map<TProtocol, Boolean> usedMap = new HashMap<>();
+    private String configPath = Constant.DEFAULT_CONFIG_PATH;
+
+    public ServicePool(ZkClient zkClient, String serviceName, int ptcCntPerServ) {
+        this(zkClient, serviceName, ptcCntPerServ, null);
+    }
 
     /**
-     *
      * @param zkClient
-     * @param serviceName 服务名称
+     * @param serviceName   服务名称
      * @param ptcCntPerServ 与每个服务器保持的连接数量
      */
-    public ServicePool(ZkClient zkClient, String serviceName, int ptcCntPerServ) {
+    public ServicePool(ZkClient zkClient, String serviceName, int ptcCntPerServ, String configPath) {
         this.zkClient = zkClient;
         this.serviceName = serviceName;
-        List<String> childrenPaths = zkClient.getChildren(Constant.DEFAULT_CONFIG_PATH.concat("/").concat(serviceName));
+        if (configPath != null && configPath.trim().length() > 0) {
+            this.configPath = configPath;
+        }
+        List<String> childrenPaths = zkClient.getChildren(configPath.concat("/").concat(serviceName));
         init(childrenPaths, ptcCntPerServ);
-        zkClient.subscribeChildChanges(Constant.DEFAULT_CONFIG_PATH.concat("/").concat(serviceName), new IZkChildListener() {
+        zkClient.subscribeChildChanges(configPath.concat("/").concat(serviceName), new IZkChildListener() {
             public void handleChildChange(String s, List<String> list) throws Exception {
                 init(list, ptcCntPerServ);
             }
@@ -44,6 +51,7 @@ public class ServicePool {
 
     /**
      * 获取一个空闲的连接
+     *
      * @return
      */
     public TProtocol get() {
@@ -75,6 +83,7 @@ public class ServicePool {
 
     /**
      * 释放连接
+     *
      * @param protocol
      */
     public void release(TProtocol protocol) {
@@ -90,6 +99,7 @@ public class ServicePool {
 
     /**
      * 初始化，将zookeeper注册节点路径下的所有服务，按照参数创建链接
+     *
      * @param childrenPaths 注册节点的所有服务的ip节点信息
      * @param ptcCntPerServ 每台服务器创建的连接数量
      */
@@ -101,13 +111,13 @@ public class ServicePool {
             Map<String, List<TProtocol>> oldMap = ip_protocol_map;
             ip_protocol_map = new HashMap<>();
             childrenPaths.forEach(ip -> {
-                int port = zkClient.readData(Constant.DEFAULT_CONFIG_PATH.concat("/").concat(serviceName).concat("/").concat(ip));
+                int port = zkClient.readData(configPath.concat("/").concat(serviceName).concat("/").concat(ip));
                 List<TProtocol> protocols = new ArrayList<>();
                 List<TProtocol> tProtocols = oldMap.get(ip);
                 if (tProtocols != null) {
                     protocols = tProtocols;
                 } else {
-                    for(int i = 0; i < ptcCntPerServ; i++){
+                    for (int i = 0; i < ptcCntPerServ; i++) {
                         TFramedTransport transport = new TFramedTransport(new TSocket(ip, port));
                         TProtocol protocol = new TCompactProtocol(transport);
                         protocols.add(protocol);
@@ -120,7 +130,7 @@ public class ServicePool {
                             tran.open();
                         }
                         Boolean b_used = oldUsedMap.get(protocol);
-                        if(b_used == null) {
+                        if (b_used == null) {
                             b_used = false;
                         }
                         usedMap.put(protocol, b_used);
