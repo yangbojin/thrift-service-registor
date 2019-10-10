@@ -2,6 +2,7 @@ package com.idss.thrift.registor;
 
 import org.I0Itec.zkclient.IZkChildListener;
 import org.I0Itec.zkclient.ZkClient;
+import org.I0Itec.zkclient.exception.ZkNoNodeException;
 import org.apache.thrift.protocol.TCompactProtocol;
 import org.apache.thrift.protocol.TProtocol;
 import org.apache.thrift.transport.TFramedTransport;
@@ -40,8 +41,12 @@ public class ServicePool {
         if (configPath != null && configPath.trim().length() > 0) {
             this.configPath = configPath;
         }
-        List<String> childrenPaths = zkClient.getChildren(configPath.concat("/").concat(serviceName));
-        init(childrenPaths, ptcCntPerServ);
+        try {
+            List<String> childrenPaths = zkClient.getChildren(configPath.concat("/").concat(serviceName));
+            init(childrenPaths, ptcCntPerServ);
+        } catch (ZkNoNodeException e) {
+            zkClient.createPersistent(configPath.concat("/").concat(serviceName), true);
+        }
         zkClient.subscribeChildChanges(configPath.concat("/").concat(serviceName), new IZkChildListener() {
             public void handleChildChange(String s, List<String> list) throws Exception {
                 init(list, ptcCntPerServ);
